@@ -195,10 +195,10 @@ fun buildGraph(numNodes: Int, numEdgesPerNode: Int): Array<Node> {
 // ---- GC MXBean helpers ----
 
 fun List<GarbageCollectorMXBean>.sumCounts(): Long =
-    sumOf { maxOf(it.collectionCount, 0L) }
+    map { maxOf(it.collectionCount, 0L) }.sum()
 
 fun List<GarbageCollectorMXBean>.sumTimes(): Long =
-    sumOf { maxOf(it.collectionTime, 0L) }
+    map { maxOf(it.collectionTime, 0L) }.sum()
 
 // ---- Argument parsing ----
 
