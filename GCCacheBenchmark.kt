@@ -60,12 +60,6 @@ var totalIterations = 100
 /** Warmup iterations excluded from output (paper drops first 15). */
 var warmupIterations = 15
 
-/** Trigger System.gc() every this many iterations. */
-var gcInterval = 10
-
-/** First iteration at which to trigger GC. */
-var gcStartIter = 11
-
 /** Nodes in the directed random graph for GC marking work. */
 var graphNodes = 5_000_000
 
@@ -86,11 +80,6 @@ var outputFile: String? = null
 class Node(n: Int) {
     val neighbors: Array<Node?> = arrayOfNulls(n)
 }
-
-// ---- GC trigger coordination ----
-
-@Volatile var gcRequested = false
-@Volatile var done = false
 
 // ---- Entry point ----
 
@@ -129,25 +118,10 @@ fun main(args: Array<String>) {
     val htKeys = IntArray(C + 1)
     val htCounts = IntArray(C + 1)
 
-    // GC trigger thread: sits idle until the main thread sets gcRequested.
-    // The paper pins this to a separate core from the main thread.
-    Thread({
-        while (!done) {
-            if (gcRequested) {
-                gcRequested = false
-                System.gc()
-            }
-            Thread.sleep(1)
-        }
-    }, "gc-trigger").apply {
-        isDaemon = true
-        start()
-    }
-
     val rng = Random(42)
 
     // CSV output to file (or stdout); diagnostics to stderr
-    csv.println("iteration,time_s,gc_triggered,gc_count_delta,gc_time_delta_ms")
+    csv.println("iteration,time_s,gc_count_delta,gc_time_delta_ms")
 
     System.err.printf("Running %d iterations (%d warmup)...%n",
         totalIterations, warmupIterations)
@@ -163,11 +137,6 @@ fun main(args: Array<String>) {
 
         val gcCountBefore = gcBeans.sumCounts()
         val gcTimeBefore = gcBeans.sumTimes()
-
-        // Trigger GC at the beginning of designated iterations
-        val triggered = iter >= gcStartIter
-                && (iter - gcStartIter) % gcInterval == 0
-        if (triggered) gcRequested = true
 
         // ---- Core workload: count-group-by ----
         // Generate N uniform i.i.d. keys in [1, C] and count each distinct
@@ -188,8 +157,8 @@ fun main(args: Array<String>) {
         val gcTimeAfter = gcBeans.sumTimes()
 
         if (iter > warmupIterations) {
-            csv.printf("%d,%.6f,%b,%d,%d%n",
-                iter, (t1 - t0) / 1e9, triggered,
+            csv.printf("%d,%.6f,%d,%d%n",
+                iter, (t1 - t0) / 1e9,
                 gcCountAfter - gcCountBefore,
                 gcTimeAfter - gcTimeBefore)
         }
@@ -199,7 +168,6 @@ fun main(args: Array<String>) {
         }
     }
 
-    done = true
     csv.flush()
     csv.close()
 
@@ -242,8 +210,6 @@ fun parseArgs(args: Array<String>) {
             "-k", "--keys"       -> N = args[++i].toInt()
             "--iterations"       -> totalIterations = args[++i].toInt()
             "--warmup"           -> warmupIterations = args[++i].toInt()
-            "--gc-interval"      -> gcInterval = args[++i].toInt()
-            "--gc-start"         -> gcStartIter = args[++i].toInt()
             "--graph-nodes"      -> graphNodes = args[++i].toInt()
             "--edges-per-node"   -> edgesPerNode = args[++i].toInt()
             "-o", "--output"     -> outputFile = args[++i]
@@ -267,8 +233,6 @@ fun printHelp() {
         |  -k, --keys N           Keys per iteration (default: 100000000)
         |      --iterations N     Total iterations (default: 100)
         |      --warmup N         Warmup iterations to skip (default: 15)
-        |      --gc-interval N    Trigger GC every N iters (default: 10)
-        |      --gc-start N       First GC trigger iteration (default: 11)
         |      --graph-nodes N    Graph nodes for GC work (default: 5000000)
         |      --edges-per-node N Edges per graph node (default: 100)
         |  -o, --output FILE      Write CSV results to FILE (default: stdout)
@@ -286,7 +250,6 @@ fun printConfig() {
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
         printf("  Warmup iterations:       %d%n", warmupIterations)
-        printf("  GC trigger:              every %d iters from iter %d%n", gcInterval, gcStartIter)
         printf("  Graph:                   %,d nodes x %d edges = %,d refs%n",
             graphNodes, edgesPerNode, graphNodes.toLong() * edgesPerNode)
         printf("  Est. graph live-set:     ~%.1f GiB%n",
