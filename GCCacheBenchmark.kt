@@ -48,8 +48,9 @@ import java.util.Random
 
 // ---- Configuration (defaults from the paper, Section 4.2) ----
 
-/** Hash table cardinality. Two int arrays of this size = 2 * 4 * C bytes total. */
-var C = 1_900_544  // ~14.5 MiB
+/** Hash table cardinality. Two boxed-Int arrays: ~48 bytes per populated slot
+ *  (2 × 8-byte refs + 2 × 16-byte Integer objects). */
+var C = 310_000  // ~14.2 MiB
 
 /** Number of uniform random keys generated per iteration. */
 var N = 100_000_000
@@ -111,12 +112,15 @@ fun main(args: Array<String>) {
     }
     System.err.println()
 
-    // Hash table: two separate int arrays for keys and counts.
-    // Separating them increases cache sensitivity -- each random lookup
-    // touches two distinct cache lines rather than one.
+    // Hash table: two separate boxed-Int arrays for keys and counts.
+    // Boxing means every write allocates a new Integer on the heap;
+    // the replaced reference becomes garbage.  This creates ~200M
+    // short-lived objects per iteration, providing natural GC pressure.
+    // Separating the arrays increases cache sensitivity -- each lookup
+    // touches two distinct cache lines (plus pointer chases to Integers).
     // Keys in [1, C] map to index = key (identity hash). Index 0 unused.
-    val htKeys = IntArray(C + 1)
-    val htCounts = IntArray(C + 1)
+    val htKeys = arrayOfNulls<Int>(C + 1)
+    val htCounts = arrayOfNulls<Int>(C + 1)
 
     val rng = Random(42)
 
@@ -132,8 +136,8 @@ fun main(args: Array<String>) {
     val n = N
 
     for (iter in 1..totalIterations) {
-        htKeys.fill(0)
-        htCounts.fill(0)
+        htKeys.fill(null)
+        htCounts.fill(null)
 
         val gcCountBefore = gcBeans.sumCounts()
         val gcTimeBefore = gcBeans.sumTimes()
@@ -146,8 +150,8 @@ fun main(args: Array<String>) {
 
         for (i in 0 until n) {
             val key = rng.nextInt(c) + 1
-            htKeys[key] = key
-            htCounts[key]++
+            htKeys[key] = key                          // autobox → new Integer
+            htCounts[key] = (htCounts[key] ?: 0) + 1   // autobox → new Integer
         }
 
         val t1 = System.nanoTime()
@@ -229,7 +233,7 @@ fun printHelp() {
         |Usage: java -jar GCCacheBenchmark.jar [options]
         |
         |Options:
-        |  -c, --cardinality N    Hash table entries (default: 1900544, ~14.5 MiB)
+        |  -c, --cardinality N    Hash table entries (default: 310000, ~14.2 MiB)
         |  -k, --keys N           Keys per iteration (default: 100000000)
         |      --iterations N     Total iterations (default: 100)
         |      --warmup N         Warmup iterations to skip (default: 15)
@@ -246,7 +250,7 @@ fun printConfig() {
         println("    Carpen-Amarie et al., ISMM '23")
         println()
         printf("  Hash table cardinality:  %,d entries%n", C)
-        printf("  Hash table size:         %.1f MiB%n", (2.0 * 4 * C) / (1024.0 * 1024))
+        printf("  Hash table size (est):   %.1f MiB%n", (48.0 * C) / (1024.0 * 1024))
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
         printf("  Warmup iterations:       %d%n", warmupIterations)
