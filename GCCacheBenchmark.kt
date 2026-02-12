@@ -67,6 +67,12 @@ var graphNodes = 5_000_000
 /** Edges per node (total edges = graphNodes * edgesPerNode). */
 var edgesPerNode = 100
 
+/** Fraction of graph nodes to replace per rotation (0.0 = disabled). */
+var graphRotateFraction = 0.01  // 1% = 50,000 nodes at defaults
+
+/** Rotate graph every N iterations (0 = disabled). */
+var graphRotateInterval = 5
+
 /** Output file for CSV results (null = stdout). */
 var outputFile: String? = null
 
@@ -123,6 +129,7 @@ fun main(args: Array<String>) {
     val htCounts = arrayOfNulls<Int>(C + 1)
 
     val rng = Random(42)
+    val rngRotate = Random(99)
 
     // CSV output to file (or stdout); diagnostics to stderr
     csv.println("iteration,time_s,gc_count_delta,gc_time_delta_ms")
@@ -167,6 +174,18 @@ fun main(args: Array<String>) {
                 gcTimeAfter - gcTimeBefore)
         }
 
+        // ---- Graph rotation (outside timed region) ----
+        // Replace a fraction of graph nodes to create old-gen garbage.
+        // The replaced nodes were long-tenured (promoted to old gen during
+        // warmup), so they become old-gen garbage that requires a major
+        // collection to reclaim. The new replacement nodes will themselves
+        // be promoted after surviving a few young-gen cycles. This creates
+        // a steady stream of old-gen garbage without the application ever
+        // touching the graph during the timed workload.
+        if (graphRotateInterval > 0 && iter % graphRotateInterval == 0) {
+            rotateGraph(graph, graphRotateFraction, rngRotate)
+        }
+
         if (iter % 10 == 0) {
             System.err.printf("  iteration %d / %d%n", iter, totalIterations)
         }
@@ -196,6 +215,19 @@ fun buildGraph(numNodes: Int, numEdgesPerNode: Int): Array<Node> {
     return nodes
 }
 
+fun rotateGraph(graph: Array<Node>, fraction: Double, rng: Random) {
+    val count = (graph.size * fraction).toInt()
+    val numEdges = graph[0].neighbors.size
+    for (k in 0 until count) {
+        val idx = rng.nextInt(graph.size)
+        val newNode = Node(numEdges)
+        for (j in 0 until numEdges) {
+            newNode.neighbors[j] = graph[rng.nextInt(graph.size)]
+        }
+        graph[idx] = newNode  // old node becomes old-gen garbage
+    }
+}
+
 // ---- GC MXBean helpers ----
 
 fun List<GarbageCollectorMXBean>.sumCounts(): Long =
@@ -216,6 +248,8 @@ fun parseArgs(args: Array<String>) {
             "--warmup"           -> warmupIterations = args[++i].toInt()
             "--graph-nodes"      -> graphNodes = args[++i].toInt()
             "--edges-per-node"   -> edgesPerNode = args[++i].toInt()
+            "--rotate-fraction"  -> graphRotateFraction = args[++i].toDouble()
+            "--rotate-interval"  -> graphRotateInterval = args[++i].toInt()
             "-o", "--output"     -> outputFile = args[++i]
             "-h", "--help"       -> { printHelp(); System.exit(0) }
             else -> {
@@ -239,6 +273,8 @@ fun printHelp() {
         |      --warmup N         Warmup iterations to skip (default: 15)
         |      --graph-nodes N    Graph nodes for GC work (default: 5000000)
         |      --edges-per-node N Edges per graph node (default: 100)
+        |      --rotate-fraction F Fraction of graph nodes to replace per rotation (default: 0.01)
+        |      --rotate-interval N Rotate graph every N iterations, 0 to disable (default: 5)
         |  -o, --output FILE      Write CSV results to FILE (default: stdout)
         |  -h, --help             Show this help
     """.trimMargin())
@@ -258,6 +294,15 @@ fun printConfig() {
             graphNodes, edgesPerNode, graphNodes.toLong() * edgesPerNode)
         printf("  Est. graph live-set:     ~%.1f GiB%n",
             estimateGraphSize(graphNodes, edgesPerNode) / (1024.0 * 1024 * 1024))
+        if (graphRotateInterval > 0) {
+            val rotateCount = (graphNodes * graphRotateFraction).toInt()
+            printf("  Graph rotation:          %,d nodes (%.1f%%) every %d iterations%n",
+                rotateCount, graphRotateFraction * 100, graphRotateInterval)
+            printf("  Est. old-gen garbage:    ~%.0f MiB per rotation%n",
+                estimateGraphSize(rotateCount, edgesPerNode) / (1024.0 * 1024))
+        } else {
+            printf("  Graph rotation:          disabled%n")
+        }
         println()
     }
 }
