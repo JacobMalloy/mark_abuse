@@ -76,6 +76,29 @@ var graphRotateInterval = 5
 /** Output file for CSV results (null = stdout). */
 var outputFile: String? = null
 
+// Random Number
+class Xorshift64(seed: Long = System.nanoTime()) {
+    private var state: Long = if (seed != 0L) seed else 0xdeadbeefcafeL
+
+    fun nextLong(): Long {
+        state = state xor (state shl 13)
+        state = state xor (state ushr 7)
+        state = state xor (state shl 17)
+        return state
+    }
+
+    fun nextInt(): Int = nextLong().toInt()
+
+    fun nextInt(bound: Int): Int = (nextLong() ushr 1).toInt() % bound
+
+    fun nextFloat(): Float = (nextLong() ushr 40) / 16777216f
+
+    fun nextDouble(): Double = (nextLong() ushr 11) / 9007199254740992.0
+
+    /** Returns a value in [0.0, 1.0) */
+    fun nextBoolean(): Boolean = nextLong() < 0
+}
+
 // ---- Graph node ----
 
 /**
@@ -128,8 +151,10 @@ fun main(args: Array<String>) {
     val htKeys = arrayOfNulls<Int>(C + 1)
     val htCounts = arrayOfNulls<Int>(C + 1)
 
-    val rng = Random(42)
-    val rngRotate = Random(99)
+    //val rng = Random(42)
+    var rng = Xorshift64(42);
+    //val rngRotate = Random(99)
+    val rngRotate = Xorshift64(99)
 
     // CSV output to file (or stdout); diagnostics to stderr
     csv.println("iteration,time_s,gc_count_delta,gc_time_delta_ms")
@@ -215,7 +240,7 @@ fun buildGraph(numNodes: Int, numEdgesPerNode: Int): Array<Node> {
     return nodes
 }
 
-fun rotateGraph(graph: Array<Node>, fraction: Double, rng: Random) {
+fun rotateGraph(graph: Array<Node>, fraction: Double, rng: Xorshift64) {
     val count = (graph.size * fraction).toInt()
     val numEdges = graph[0].neighbors.size
     for (k in 0 until count) {
