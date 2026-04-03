@@ -131,7 +131,7 @@ fun main(args: Array<String>) {
     val rngRotate = Random(99)
 
     // CSV output to file (or stdout); diagnostics to stderr
-    csv.println("iteration,time_s,gc_count_delta,gc_time_delta_ms")
+    csv.println("iteration,timestamp_ms,time_s,gc_count_delta,gc_time_delta_ms,warmup")
 
     System.err.printf("Running %d iterations (%d warmup)...%n",
         totalIterations, warmupIterations)
@@ -152,6 +152,7 @@ fun main(args: Array<String>) {
         // Generate N uniform i.i.d. keys in [1, C] and count each distinct
         // key in the hash table. Integer.hashCode() is the identity function,
         // so key k maps directly to index k -- no collisions, no probing.
+        val wallMs = System.currentTimeMillis()
         val t0 = System.nanoTime()
 
         for (i in 0 until n) {
@@ -166,12 +167,13 @@ fun main(args: Array<String>) {
         val gcCountAfter = gcBeans.sumCounts()
         val gcTimeAfter = gcBeans.sumTimes()
 
-        if (iter > warmupIterations) {
-            csv.printf("%d,%.6f,%d,%d%n",
-                iter, (t1 - t0) / 1e9,
-                gcCountAfter - gcCountBefore,
-                gcTimeAfter - gcTimeBefore)
-        }
+        val isWarmup = iter <= warmupIterations
+        csv.printf("%d,%d,%.6f,%d,%d,%b%n",
+            iter, wallMs,
+            (t1 - t0) / 1e9,
+            gcCountAfter - gcCountBefore,
+            gcTimeAfter - gcTimeBefore,
+            isWarmup)
 
         // ---- Graph rotation (outside timed region) ----
         // Replace a fraction of graph nodes to create old-gen garbage.
