@@ -13,7 +13,7 @@ import java.util.Random
  * "Concurrent GCs and Modern Java Workloads: A Cache Perspective", ISMM '23.
  *
  * Computes a count-group-by aggregate over uniformly random keys using a
- * hash table (two separate int arrays) sized to be fully LLC-resident.
+ * hash table (single int array) sized to be fully LLC-resident.
  * A large directed random graph is pre-allocated to give the GC marking
  * phase significant traversal work. System.gc() is triggered every N
  * iterations from a dedicated thread so that GC runs concurrently with
@@ -48,9 +48,9 @@ import java.util.Random
 
 // ---- Configuration (defaults from the paper, Section 4.2) ----
 
-/** Hash table cardinality. Must be a power of 2. Two primitive IntArrays: ~8 bytes per slot
- *  (2 × 4-byte int values, no heap objects). */
-var C = PowerOfTwo(1L shl 21)  // 2,097,152 ≈ 16 MiB
+/** Hash table cardinality. Must be a power of 2. One primitive IntArray: ~4 bytes per slot
+ *  (1 × 4-byte int value, no heap objects). */
+var C = PowerOfTwo(1L shl 22)  // 4,194,304 ≈ 16 MiB
 
 /** Number of uniform random keys generated per iteration. */
 var N = 100_000_000
@@ -153,14 +153,12 @@ fun main(args: Array<String>) {
     }
     System.err.println()
 
-    // Hash table: two separate primitive IntArrays for keys and counts.
+    // Hash table: single primitive IntArray of counts.
     // No heap allocation on write -- this version has no intrinsic GC
     // pressure from the workload itself; only graph rotation generates
-    // garbage. Separating the arrays preserves cache sensitivity -- each
-    // lookup touches two distinct cache lines. Keys in [0, C-1] map to
-    // index = key (no collisions, no probing).
-    val htKeys = IntArray(C.value.toInt())
-    val htCounts = IntArray(C.value.toInt())
+    // garbage. Keys in [0, C-1] map to index = key (no collisions, no
+    // probing); each write increments the slot directly.
+    val ht = IntArray(C.value.toInt())
 
     // val rng = Random(42)
     // val rngRotate = Random(99)
@@ -180,23 +178,19 @@ fun main(args: Array<String>) {
     val n = N
 
     for (iter in 1..totalIterations) {
-        htKeys.fill(0)
-        htCounts.fill(0)
+        ht.fill(0)
 
         val gcCountBefore = gcBeans.sumCounts()
         val gcTimeBefore = gcBeans.sumTimes()
 
         // ---- Core workload: count-group-by ----
-        // Generate N uniform i.i.d. keys in [1, C] and count each distinct
-        // key in the hash table. Integer.hashCode() is the identity function,
-        // so key k maps directly to index k -- no collisions, no probing.
+        // Generate N uniform i.i.d. keys in [0, C) and increment each
+        // slot directly. Key k maps to index k -- no collisions, no probing.
         val wallMs = System.currentTimeMillis()
         val t0 = System.nanoTime()
 
         for (i in 0 until n) {
-            val key = rng.nextInt(c)
-            htKeys[key] = key
-            htCounts[key]++
+            ht[rng.nextInt(c)]++
         }
 
         val t1 = System.nanoTime()
@@ -306,7 +300,7 @@ fun printHelp() {
         |Usage: java -jar GCCacheBenchmark.jar [options]
         |
         |Options:
-        |  -c, --cardinality N    Hash table entries (default: 1860000, ~14.2 MiB)
+        |  -c, --cardinality N    Hash table entries (default: 4194304, ~16 MiB)
         |  -k, --keys N           Keys per iteration (default: 100000000)
         |      --iterations N     Total iterations (default: 100)
         |      --warmup N         Warmup iterations to skip (default: 15)
@@ -325,7 +319,7 @@ fun printConfig() {
         println("    Carpen-Amarie et al., ISMM '23")
         println()
         printf("  Hash table cardinality:  %,d entries%n", C.value)
-        printf("  Hash table size (est):   %.1f MiB%n", (8.0 * C.value) / (1024.0 * 1024))
+        printf("  Hash table size (est):   %.1f MiB%n", (4.0 * C.value) / (1024.0 * 1024))
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
         printf("  Warmup iterations:       %d%n", warmupIterations)
