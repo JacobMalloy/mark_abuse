@@ -48,9 +48,9 @@ import java.util.Random
 
 // ---- Configuration (defaults from the paper, Section 4.2) ----
 
-/** Hash table cardinality. Two primitive IntArrays: ~8 bytes per slot
+/** Hash table cardinality. Must be a power of 2. Two primitive IntArrays: ~8 bytes per slot
  *  (2 × 4-byte int values, no heap objects). */
-var C = 1_860_000  // ~14.2 MiB
+var C = PowerOfTwo(1L shl 21)  // 2,097,152 ≈ 16 MiB
 
 /** Number of uniform random keys generated per iteration. */
 var N = 100_000_000
@@ -88,6 +88,14 @@ class Node(n: Int) {
     val neighbors: Array<Node?> = arrayOfNulls(n)
 }
 
+class PowerOfTwo(val value: ULong) {
+    init {
+        require(value > 0 && (value and (value - 1)) == 0L) {
+            "Value must be a power of 2, got $value"
+        }
+    }
+}
+
 class Xorshift64(seed: Long = System.nanoTime()) {
     private var state: Long = if (seed != 0L) seed else 0xdeadbeefcafeL
 
@@ -101,6 +109,11 @@ class Xorshift64(seed: Long = System.nanoTime()) {
     fun nextInt(): Int = nextLong().toInt()
 
     fun nextInt(bound: Int): Int = ((nextLong() ushr 1) % bound).toInt()
+
+    /** Returns a value in [0, bound) using bitmask -- no modulo required. */
+    fun nextLong(bound: PowerOfTwo): Long = nextLong() and (bound.value - 1)
+
+    fun nextInt(bound: PowerOfTwo): Int = nextLong(bound).toInt()
 
     fun nextFloat(): Float = (nextLong() ushr 40) / 16777216f
 
@@ -146,8 +159,8 @@ fun main(args: Array<String>) {
     // garbage. Separating the arrays preserves cache sensitivity -- each
     // lookup touches two distinct cache lines. Keys in [0, C-1] map to
     // index = key (no collisions, no probing).
-    val htKeys = IntArray(C)
-    val htCounts = IntArray(C)
+    val htKeys = IntArray(C.value.toInt())
+    val htCounts = IntArray(C.value.toInt())
 
     // val rng = Random(42)
     // val rngRotate = Random(99)
@@ -268,7 +281,7 @@ fun parseArgs(args: Array<String>) {
     var i = 0
     while (i < args.size) {
         when (args[i]) {
-            "-c", "--cardinality" -> C = args[++i].toInt()
+            "-c", "--cardinality" -> C = PowerOfTwo(args[++i].toLong())
             "-k", "--keys"       -> N = args[++i].toInt()
             "--iterations"       -> totalIterations = args[++i].toInt()
             "--warmup"           -> warmupIterations = args[++i].toInt()
@@ -311,8 +324,8 @@ fun printConfig() {
         println("=== Cache-Sensitive GC Micro-Benchmark ===")
         println("    Carpen-Amarie et al., ISMM '23")
         println()
-        printf("  Hash table cardinality:  %,d entries%n", C)
-        printf("  Hash table size (est):   %.1f MiB%n", (8.0 * C) / (1024.0 * 1024))
+        printf("  Hash table cardinality:  %,d entries%n", C.value)
+        printf("  Hash table size (est):   %.1f MiB%n", (8.0 * C.value) / (1024.0 * 1024))
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
         printf("  Warmup iterations:       %d%n", warmupIterations)
