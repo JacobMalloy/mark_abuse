@@ -50,7 +50,7 @@ import java.util.Random
 
 /** Hash table cardinality. Must be a power of 2. One primitive IntArray: ~4 bytes per slot
  *  (1 × 4-byte int value, no heap objects). */
-var C = PowerOfTwo(1L shl 22)  // 4,194,304 ≈ 16 MiB
+var C = PowerOfTwo(1UL shl 22)  // 4,194,304 ≈ 16 MiB
 
 /** Number of uniform random keys generated per iteration. */
 var N = 100_000_000
@@ -90,7 +90,7 @@ class Node(n: Int) {
 
 class PowerOfTwo(val value: ULong) {
     init {
-        require(value > 0 && (value and (value - 1)) == 0L) {
+        require(value > 0UL && (value and (value - 1UL)) == 0UL) {
             "Value must be a power of 2, got $value"
         }
     }
@@ -111,7 +111,7 @@ class Xorshift64(seed: Long = System.nanoTime()) {
     fun nextInt(bound: Int): Int = ((nextLong() ushr 1) % bound).toInt()
 
     /** Returns a value in [0, bound) using bitmask -- no modulo required. */
-    fun nextLong(bound: PowerOfTwo): Long = nextLong() and (bound.value - 1)
+    fun nextLong(bound: PowerOfTwo): Long = nextLong() and (bound.value - 1UL).toLong()
 
     fun nextInt(bound: PowerOfTwo): Int = nextLong(bound).toInt()
 
@@ -275,7 +275,7 @@ fun parseArgs(args: Array<String>) {
     var i = 0
     while (i < args.size) {
         when (args[i]) {
-            "-c", "--cardinality" -> C = PowerOfTwo(args[++i].toLong())
+            "-c", "--cardinality" -> C = PowerOfTwo(args[++i].toULong())
             "-k", "--keys"       -> N = args[++i].toInt()
             "--iterations"       -> totalIterations = args[++i].toInt()
             "--warmup"           -> warmupIterations = args[++i].toInt()
@@ -319,7 +319,7 @@ fun printConfig() {
         println("    Carpen-Amarie et al., ISMM '23")
         println()
         printf("  Hash table cardinality:  %,d entries%n", C.value)
-        printf("  Hash table size (est):   %.1f MiB%n", (4.0 * C.value) / (1024.0 * 1024))
+        printf("  Hash table size (est):   %.1f MiB%n", (4.0 * C.value.toDouble()) / (1024.0 * 1024))
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
         printf("  Warmup iterations:       %d%n", warmupIterations)
