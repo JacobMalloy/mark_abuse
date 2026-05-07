@@ -318,7 +318,7 @@ fun printConfig() {
         println("=== Cache-Sensitive GC Micro-Benchmark ===")
         println("    Carpen-Amarie et al., ISMM '23")
         println()
-        printf("  Hash table cardinality:  %,d entries%n", C.value)
+        printf("  Hash table cardinality:  %,d entries%n", C.value.toLong())
         printf("  Hash table size (est):   %.1f MiB%n", (4.0 * C.value.toDouble()) / (1024.0 * 1024))
         printf("  Keys per iteration:      %,d%n", N)
         printf("  Total iterations:        %d%n", totalIterations)
