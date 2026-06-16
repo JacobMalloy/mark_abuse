@@ -94,6 +94,11 @@ class PowerOfTwo(val value: ULong) {
             "Value must be a power of 2, got $value"
         }
     }
+
+    val longMask: Long = (value - 1UL).toLong()
+
+    fun mod(x: Long): Long = x and longMask
+    fun mod(x: Int): Int = x and longMask.toInt()
 }
 
 class Xorshift64(seed: Long = System.nanoTime()) {
@@ -110,10 +115,9 @@ class Xorshift64(seed: Long = System.nanoTime()) {
 
     fun nextInt(bound: Int): Int = ((nextLong() ushr 1) % bound).toInt()
 
-    /** Returns a value in [0, bound) using bitmask -- no modulo required. */
-    fun nextLong(bound: PowerOfTwo): Long = nextLong() and (bound.value - 1UL).toLong()
+    fun nextLong(bound: PowerOfTwo): Long = bound.mod(nextLong())
 
-    fun nextInt(bound: PowerOfTwo): Int = nextLong(bound).toInt()
+    fun nextInt(bound: PowerOfTwo): Int = bound.mod(nextLong().toInt())
 
     fun nextFloat(): Float = (nextLong() ushr 40) / 16777216f
 
@@ -183,14 +187,16 @@ fun main(args: Array<String>) {
         val gcCountBefore = gcBeans.sumCounts()
         val gcTimeBefore = gcBeans.sumTimes()
 
-        // ---- Core workload: count-group-by ----
-        // Generate N uniform i.i.d. keys in [0, C) and increment each
-        // slot directly. Key k maps to index k -- no collisions, no probing.
+        // ---- Core workload: chained dependent loads ----
+        // Each access uses the value loaded from ht[idx] to compute the next
+        // index, creating a true serial data-dependency chain that prevents
+        // the CPU from issuing the next load until the current one completes.
         val wallMs = System.currentTimeMillis()
         val t0 = System.nanoTime()
 
+        var idx = rng.nextInt(c)
         for (i in 0 until n) {
-            ht[rng.nextInt(c)]++
+            idx = c.mod(rng.nextInt(c) + ht[idx]++)
         }
 
         val t1 = System.nanoTime()
